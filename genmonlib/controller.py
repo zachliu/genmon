@@ -2277,6 +2277,8 @@ class GeneratorController(MySupport):
     def GetTempSensorNames(self):
         try:
             names = []
+            if self.bUseRaspberryPiCpuTempGauge:
+                names.append("CPU Temp")
             if self.ExternalSensorGagueData:
                 for gauge in self.ExternalSensorGagueData:
                     names.append(gauge.get("title", ""))
@@ -2311,12 +2313,21 @@ class GeneratorController(MySupport):
             self.LogToPowerLog(TimeStamp, "0.0")
 
         LastValue = 0.0
+        LastCpuTemp = 0.0
         LastPruneTime = datetime.datetime.now()
         LastFuelCheckTime = datetime.datetime.now()
         while True:
             try:
                 if self.WaitForExit("PowerMeter", 10):
                     return
+
+                # Log CPU temperature
+                if self.bUseRaspberryPiCpuTempGauge and self.Platform:
+                    CpuTemp = self.Platform.GetRaspberryPiTemp(ReturnFloat=True)
+                    if CpuTemp != LastCpuTemp and CpuTemp != 0.0:
+                        LastCpuTemp = CpuTemp
+                        TimeStamp = datetime.datetime.now().strftime("%x %X")
+                        self.LogToTempLog("CPU Temp", TimeStamp, str(CpuTemp))
 
                 # Housekeeping on kw Log
                 if LastValue == 0:
