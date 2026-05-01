@@ -845,7 +845,7 @@ class Monitor(MySupport):
                     (command.lower(),),
                     True,
                 ],
-                "temp_sensor_names": [
+                "temp_sensor_names_json": [
                     self.Controller.GetTempSensorNames,
                     (),
                     True,
