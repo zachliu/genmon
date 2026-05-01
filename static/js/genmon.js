@@ -1887,19 +1887,17 @@ var Pages = {
         e.stopPropagation();
       });
 
-      /* Chart buttons */
+      /* Chart buttons (power + temperature) */
       $c.on('click', '.chart-btn', function() {
-        $('.chart-btn').removeClass('active'); $(this).addClass('active');
-        Pages.status._loadChart($(this).data('mins'));
-      });
-
-      /* Temperature chart buttons */
-      $c.on('click', '.temp-chart-btn', function() {
-        var $tile = $(this).closest('.tile-chart');
-        $tile.find('.temp-chart-btn').removeClass('active');
-        $(this).addClass('active');
         var sensor = $(this).data('sensor');
-        Pages.status._loadTempChart(sensor, $(this).data('mins'));
+        var $tile = $(this).closest('.tile-chart');
+        $tile.find('.chart-btn').removeClass('active');
+        $(this).addClass('active');
+        if (sensor) {
+          Pages.status._loadTempChart(sensor, $(this).data('mins'));
+        } else {
+          Pages.status._loadChart($(this).data('mins'));
+        }
       });
 
       /* Chart size buttons */
@@ -2756,11 +2754,11 @@ var Pages = {
         '<div class="tile-title">' + esc(sensorName) + '</div>' +
         '<div class="chart-wrap"><canvas id="temp-chart-' + esc(Store.slugify(sensorName)) + '"></canvas></div>' +
         '<div class="chart-controls">' +
-        '<button class="temp-chart-btn" data-mins="60" data-sensor="' + esc(sensorName) + '">1h</button>' +
-        '<button class="temp-chart-btn" data-mins="360" data-sensor="' + esc(sensorName) + '">6h</button>' +
-        '<button class="temp-chart-btn" data-mins="1440" data-sensor="' + esc(sensorName) + '">24h</button>' +
-        '<button class="temp-chart-btn" data-mins="10080" data-sensor="' + esc(sensorName) + '">7d</button>' +
-        '<button class="temp-chart-btn active" data-mins="43200" data-sensor="' + esc(sensorName) + '">30d</button>' +
+        '<button class="chart-btn" data-mins="60" data-sensor="' + esc(sensorName) + '">1h</button>' +
+        '<button class="chart-btn" data-mins="360" data-sensor="' + esc(sensorName) + '">6h</button>' +
+        '<button class="chart-btn" data-mins="1440" data-sensor="' + esc(sensorName) + '">24h</button>' +
+        '<button class="chart-btn" data-mins="10080" data-sensor="' + esc(sensorName) + '">7d</button>' +
+        '<button class="chart-btn active" data-mins="43200" data-sensor="' + esc(sensorName) + '">30d</button>' +
         '</div></div>';
     },
 
@@ -2854,7 +2852,7 @@ var Pages = {
           self._tempCharts[sensorName].rawData = parsed;
         }
         var key = 'tempchart-' + Store.slugify(sensorName);
-        var $active = $('[data-tile="' + key + '"] .temp-chart-btn.active');
+        var $active = $('[data-tile="' + key + '"] .chart-btn.active');
         var mins = $active.length ? $active.data('mins') : 43200;
         self._loadTempChart(sensorName, mins);
       });
