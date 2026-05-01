@@ -89,6 +89,11 @@ class GeneratorController(MySupport):
         self.FuelLock = threading.RLock()
         self.PowerLogList = []
         self.PowerLock = threading.RLock()
+        self.TempLogPath = os.path.join(ConfigFilePath, "templogs")
+        self.TempLogMaxSize = 5.0  # 5 MB max size per sensor
+        self.MaxTempLogEntries = 8000
+        self.TempLogLock = threading.RLock()
+        self.TempLogLists = {}  # per-sensor cached lists: {sensor_name: [[ts, val], ...]}
         self.bAlternateDateFormat = False
         self.HoursFuelRemainingAtLoad = None
         self.HoursFuelRemainingCurrentLoad = None
@@ -1257,6 +1262,7 @@ class GeneratorController(MySupport):
             StartInfo["phase"] = self.Phase
             StartInfo["Controller"] = "Generic Controller Name"
             StartInfo["PowerGraph"] = self.PowerMeterIsSupported()
+            StartInfo["TempSensors"] = self.GetTempSensorNames()
             StartInfo["NominalBatteryVolts"] = "12"
             StartInfo["UtilityVoltageDisplayed"] = True
             StartInfo["RemoteCommands"] = True
@@ -2118,6 +2124,160 @@ class GeneratorController(MySupport):
         except Exception as e1:
             self.LogErrorLine("Error in  GetAveragePower: " + str(e1))
             return 0, 0
+
+    # ----------  GeneratorController::GetTempLogFile-----------------------------
+    def GetTempLogFile(self, sensor_name):
+        safe_name = re.sub(r'[^\w\-]', '_', sensor_name)
+        return os.path.join(self.TempLogPath, "templog_%s.txt" % safe_name)
+
+    # ----------  GeneratorController::LogToTempLog-------------------------------
+    def LogToTempLog(self, sensor_name, TimeStamp, Value):
+        try:
+            TimeStamp = self.removeNonPrintable(TimeStamp)
+            Value = self.removeNonPrintable(Value)
+            if not len(TimeStamp) or not len(Value):
+                return
+            if not os.path.isdir(self.TempLogPath):
+                os.makedirs(self.TempLogPath)
+            LogFile = self.GetTempLogFile(sensor_name)
+            with self.TempLogLock:
+                if sensor_name in self.TempLogLists and len(self.TempLogLists[sensor_name]):
+                    self.TempLogLists[sensor_name].insert(0, [TimeStamp, Value])
+            self.LogToFile(LogFile, TimeStamp, Value)
+            # Prune if file exceeds size limit
+            if os.path.isfile(LogFile):
+                LogSize = os.path.getsize(LogFile)
+                if float(LogSize) / (1024 * 1024) >= self.TempLogMaxSize * 0.85:
+                    self.PruneTempLog(sensor_name, 60 * 24 * 30 * 36)
+        except Exception as e1:
+            self.LogErrorLine("Error in LogToTempLog: " + str(e1))
+
+    # ----------  GeneratorController::ReadTempLogFromFile------------------------
+    def ReadTempLogFromFile(self, sensor_name, Minutes=0):
+        LogFile = self.GetTempLogFile(sensor_name)
+        if not os.path.isfile(LogFile):
+            return []
+
+        with self.TempLogLock:
+            if sensor_name in self.TempLogLists and len(self.TempLogLists[sensor_name]) and not Minutes:
+                return self.TempLogLists[sensor_name]
+            if Minutes:
+                return self.GetTempLogForMinutes(sensor_name, Minutes)
+
+            TempList = []
+            try:
+                with open(LogFile, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not len(line):
+                            continue
+                        if line[0] == "#":
+                            continue
+                        line = self.removeNonPrintable(line)
+                        Items = line.split(",")
+                        if len(Items) != 2:
+                            continue
+                        Items[1] = self.removeAlpha(Items[1])
+                        TempList.insert(0, [Items[0], Items[1]])
+            except Exception as e1:
+                self.LogErrorLine("Error in ReadTempLogFromFile (parse): " + str(e1))
+
+            if len(TempList) > self.MaxTempLogEntries:
+                TempList = self.ReducePowerSamples(TempList, self.MaxTempLogEntries)
+            if sensor_name not in self.TempLogLists or not len(self.TempLogLists.get(sensor_name, [])):
+                self.TempLogLists[sensor_name] = TempList
+        return TempList
+
+    # ----------  GeneratorController::GetTempLogForMinutes-----------------------
+    def GetTempLogForMinutes(self, sensor_name, Minutes):
+        ReturnList = []
+        try:
+            TempList = self.ReadTempLogFromFile(sensor_name)
+            if not Minutes:
+                return TempList
+            CurrentTime = datetime.datetime.now()
+            for Time, Temp in reversed(TempList):
+                try:
+                    struct_time = time.strptime(Time, "%x %X")
+                    LogEntryTime = datetime.datetime.fromtimestamp(time.mktime(struct_time))
+                except Exception as e1:
+                    continue
+                Delta = CurrentTime - LogEntryTime
+                if self.GetDeltaTimeMinutes(Delta) < Minutes:
+                    ReturnList.insert(0, [Time, Temp])
+        except Exception as e1:
+            self.LogErrorLine("Error in GetTempLogForMinutes: " + str(e1))
+        return ReturnList
+
+    # ----------  GeneratorController::GetTempHistory-----------------------------
+    def GetTempHistory(self, CmdString):
+        try:
+            if not len(CmdString):
+                self.LogError("Error in GetTempHistory: Invalid input")
+                return []
+
+            # Format: "temp_log_json=<minutes>&sensor=<name>"
+            CmdList = CmdString.split("=", 1)
+            if len(CmdList) != 2 or not CmdList[0].lower() == "temp_log_json":
+                self.LogError("Error parsing command in GetTempHistory: " + CmdString)
+                return []
+
+            params = CmdList[1]
+            parts = params.split("&sensor=")
+            if len(parts) != 2:
+                self.LogError("Error parsing sensor in GetTempHistory: " + CmdString)
+                return []
+
+            Minutes = int(parts[0].strip())
+            sensor_name = parts[1].strip()
+
+            TempList = self.ReadTempLogFromFile(sensor_name, Minutes=Minutes)
+            if len(TempList) > self.MaxTempLogEntries:
+                TempList = self.ReducePowerSamples(TempList, self.MaxTempLogEntries)
+            return TempList
+
+        except Exception as e1:
+            self.LogErrorLine("Error in GetTempHistory: " + str(e1))
+            return []
+
+    # ----------  GeneratorController::PruneTempLog-------------------------------
+    def PruneTempLog(self, sensor_name, Minutes):
+        try:
+            LogFile = self.GetTempLogFile(sensor_name)
+            if not os.path.isfile(LogFile):
+                return
+            LogSize = os.path.getsize(LogFile)
+            if float(LogSize) / (1024 * 1024) < self.TempLogMaxSize * 0.85:
+                return
+            if float(LogSize) / (1024 * 1024) >= self.TempLogMaxSize:
+                # file too large, clear and restart
+                with self.TempLogLock:
+                    os.remove(LogFile)
+                    self.TempLogLists.pop(sensor_name, None)
+                return
+            # prune old entries
+            CmdString = "temp_log_json=%d&sensor=%s" % (Minutes, sensor_name)
+            TempLog = self.GetTempHistory(CmdString)
+            with self.TempLogLock:
+                if os.path.isfile(LogFile):
+                    os.remove(LogFile)
+                self.TempLogLists.pop(sensor_name, None)
+            for Items in reversed(TempLog):
+                self.LogToTempLog(sensor_name, Items[0], Items[1])
+        except Exception as e1:
+            self.LogErrorLine("Error in PruneTempLog: " + str(e1))
+
+    # ----------  GeneratorController::GetTempSensorNames-------------------------
+    def GetTempSensorNames(self):
+        try:
+            names = []
+            if self.ExternalSensorGagueData:
+                for gauge in self.ExternalSensorGagueData:
+                    names.append(gauge.get("title", ""))
+            return names
+        except Exception as e1:
+            self.LogErrorLine("Error in GetTempSensorNames: " + str(e1))
+            return []
 
     # ----------  GeneratorController::PowerMeter--------------------------------
     # ----------  Monitors Power Output
@@ -3177,7 +3337,14 @@ class GeneratorController(MySupport):
 
                     self.UseExternalSensorData = True
                     self.ExternalSensorDataTime = datetime.datetime.now()
-                    
+
+                    # Log temperature data to per-sensor files
+                    TimeStamp = datetime.datetime.now().strftime("%x %X")
+                    for sensor_dict in json.loads(CmdList[1]):
+                        for sensor_name, sensor_value in sensor_dict.items():
+                            numeric_value = str(self.ConvertToNumber(sensor_value))
+                            self.LogToTempLog(sensor_name, TimeStamp, numeric_value)
+
                 else:
                     self.LogError("Error in  SetExternalSensorData: invalid input: " + str(len(CmdList)))
                     return "Error"
