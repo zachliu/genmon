@@ -2217,8 +2217,9 @@ class GeneratorController(MySupport):
                 return []
 
             # Format: "temp_log_json=<minutes>&sensor=<name>"
+            CmdString = CmdString.strip()
             CmdList = CmdString.split("=", 1)
-            if len(CmdList) != 2 or not CmdList[0].lower() == "temp_log_json":
+            if len(CmdList) != 2 or not CmdList[0].strip().lower() == "temp_log_json":
                 self.LogError("Error parsing command in GetTempHistory: " + CmdString)
                 return []
 
@@ -2230,6 +2231,11 @@ class GeneratorController(MySupport):
 
             Minutes = int(parts[0].strip())
             sensor_name = parts[1].strip()
+            # Match sensor name case-insensitively against known sensors
+            for known in self.GetTempSensorNames():
+                if known.lower() == sensor_name.lower():
+                    sensor_name = known
+                    break
 
             TempList = self.ReadTempLogFromFile(sensor_name, Minutes=Minutes)
             if len(TempList) > self.MaxTempLogEntries:
