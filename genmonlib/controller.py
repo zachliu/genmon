@@ -2164,9 +2164,10 @@ class GeneratorController(MySupport):
                 os.makedirs(self.TempLogPath)
             LogFile = self.GetTempLogFile(sensor_name)
             epoch = self.ParseTempTimestamp(TimeStamp)
+            cache_key = self.GetTempCacheKey(sensor_name)
             with self.TempLogLock:
-                if sensor_name in self.TempLogLists and len(self.TempLogLists[sensor_name]):
-                    self.TempLogLists[sensor_name].insert(0, [TimeStamp, Value, epoch])
+                if cache_key in self.TempLogLists and len(self.TempLogLists[cache_key]):
+                    self.TempLogLists[cache_key].insert(0, [TimeStamp, Value, epoch])
             self.LogToFile(LogFile, TimeStamp, Value)
             # Prune if file exceeds size limit
             if os.path.isfile(LogFile):
@@ -2176,15 +2177,20 @@ class GeneratorController(MySupport):
         except Exception as e1:
             self.LogErrorLine("Error in LogToTempLog: " + str(e1))
 
+    # ----------  GeneratorController::GetTempCacheKey-----------------------------
+    def GetTempCacheKey(self, sensor_name):
+        return re.sub(r'[^\w\-]', '_', sensor_name)
+
     # ----------  GeneratorController::ReadTempLogFromFile------------------------
     def ReadTempLogFromFile(self, sensor_name, Minutes=0):
         LogFile = self.GetTempLogFile(sensor_name)
+        cache_key = self.GetTempCacheKey(sensor_name)
         if not os.path.isfile(LogFile):
             return []
 
         with self.TempLogLock:
-            if sensor_name in self.TempLogLists and len(self.TempLogLists[sensor_name]) and not Minutes:
-                return self.TempLogLists[sensor_name]
+            if cache_key in self.TempLogLists and len(self.TempLogLists[cache_key]) and not Minutes:
+                return self.TempLogLists[cache_key]
             if Minutes:
                 return self.GetTempLogForMinutes(sensor_name, Minutes)
 
@@ -2209,8 +2215,8 @@ class GeneratorController(MySupport):
 
             if len(TempList) > self.MaxTempLogEntries:
                 TempList = self.ReducePowerSamples(TempList, self.MaxTempLogEntries)
-            if sensor_name not in self.TempLogLists or not len(self.TempLogLists.get(sensor_name, [])):
-                self.TempLogLists[sensor_name] = TempList
+            if cache_key not in self.TempLogLists or not len(self.TempLogLists.get(cache_key, [])):
+                self.TempLogLists[cache_key] = TempList
         return TempList
 
     # ----------  GeneratorController::GetTempLogForMinutes-----------------------
@@ -2280,17 +2286,19 @@ class GeneratorController(MySupport):
                 return
             if float(LogSize) / (1024 * 1024) >= self.TempLogMaxSize:
                 # file too large, clear and restart
+                cache_key = self.GetTempCacheKey(sensor_name)
                 with self.TempLogLock:
                     os.remove(LogFile)
-                    self.TempLogLists.pop(sensor_name, None)
+                    self.TempLogLists.pop(cache_key, None)
                 return
             # prune old entries
+            cache_key = self.GetTempCacheKey(sensor_name)
             CmdString = "temp_log_json=%d&sensor=%s" % (Minutes, sensor_name)
             TempLog = self.GetTempHistory(CmdString)
             with self.TempLogLock:
                 if os.path.isfile(LogFile):
                     os.remove(LogFile)
-                self.TempLogLists.pop(sensor_name, None)
+                self.TempLogLists.pop(cache_key, None)
             for Items in reversed(TempLog):
                 self.LogToTempLog(sensor_name, Items[0], Items[1])
         except Exception as e1:
@@ -2334,6 +2342,16 @@ class GeneratorController(MySupport):
             TimeStamp = datetime.datetime.now().strftime("%x %X")
             self.LogError("Creating Power Log: " + self.PowerLog)
             self.LogToPowerLog(TimeStamp, "0.0")
+
+        # Pre-warm temperature log caches
+        try:
+            if os.path.isdir(self.TempLogPath):
+                for fname in os.listdir(self.TempLogPath):
+                    if fname.startswith("templog_") and fname.endswith(".txt"):
+                        safe_name = fname[len("templog_"):-len(".txt")]
+                        self.ReadTempLogFromFile(safe_name)
+        except Exception as e1:
+            self.LogErrorLine("Error pre-warming temp log cache: " + str(e1))
 
         LastValue = 0.0
         LastCpuTemp = 0.0
