@@ -2756,9 +2756,9 @@ var Pages = {
         '<div class="chart-controls">' +
         '<button class="chart-btn" data-mins="60" data-sensor="' + esc(sensorName) + '">1h</button>' +
         '<button class="chart-btn" data-mins="360" data-sensor="' + esc(sensorName) + '">6h</button>' +
-        '<button class="chart-btn" data-mins="1440" data-sensor="' + esc(sensorName) + '">24h</button>' +
+        '<button class="chart-btn active" data-mins="1440" data-sensor="' + esc(sensorName) + '">24h</button>' +
         '<button class="chart-btn" data-mins="10080" data-sensor="' + esc(sensorName) + '">7d</button>' +
-        '<button class="chart-btn active" data-mins="43200" data-sensor="' + esc(sensorName) + '">30d</button>' +
+        '<button class="chart-btn" data-mins="43200" data-sensor="' + esc(sensorName) + '">30d</button>' +
         '</div></div>';
     },
 
@@ -2828,7 +2828,7 @@ var Pages = {
       if (!mins) {
         var key = 'tempchart-' + Store.slugify(sensorName);
         var $active = $('[data-tile="' + key + '"] .chart-btn.active');
-        mins = $active.length ? $active.data('mins') : 43200;
+        mins = $active.length ? $active.data('mins') : 1440;
       }
       API.get('temp_log_json?temp_log_json=' + mins + '&sensor=' + encodeURIComponent(sensorName), 20000).done(function(d) {
         if (!d || !Array.isArray(d)) return;
