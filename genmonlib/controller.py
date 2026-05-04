@@ -2145,6 +2145,14 @@ class GeneratorController(MySupport):
         safe_name = re.sub(r'[^\w\-]', '_', sensor_name)
         return os.path.join(self.TempLogPath, "templog_%s.txt" % safe_name)
 
+    # ----------  GeneratorController::ParseTempTimestamp--------------------------
+    def ParseTempTimestamp(self, TimeStamp):
+        try:
+            struct_time = time.strptime(TimeStamp, "%x %X")
+            return time.mktime(struct_time)
+        except Exception as e1:
+            return 0
+
     # ----------  GeneratorController::LogToTempLog-------------------------------
     def LogToTempLog(self, sensor_name, TimeStamp, Value):
         try:
@@ -2155,9 +2163,10 @@ class GeneratorController(MySupport):
             if not os.path.isdir(self.TempLogPath):
                 os.makedirs(self.TempLogPath)
             LogFile = self.GetTempLogFile(sensor_name)
+            epoch = self.ParseTempTimestamp(TimeStamp)
             with self.TempLogLock:
                 if sensor_name in self.TempLogLists and len(self.TempLogLists[sensor_name]):
-                    self.TempLogLists[sensor_name].insert(0, [TimeStamp, Value])
+                    self.TempLogLists[sensor_name].insert(0, [TimeStamp, Value, epoch])
             self.LogToFile(LogFile, TimeStamp, Value)
             # Prune if file exceeds size limit
             if os.path.isfile(LogFile):
@@ -2193,7 +2202,8 @@ class GeneratorController(MySupport):
                         if len(Items) != 2:
                             continue
                         Items[1] = self.removeAlpha(Items[1])
-                        TempList.insert(0, [Items[0], Items[1]])
+                        epoch = self.ParseTempTimestamp(Items[0])
+                        TempList.insert(0, [Items[0], Items[1], epoch])
             except Exception as e1:
                 self.LogErrorLine("Error in ReadTempLogFromFile (parse): " + str(e1))
 
@@ -2210,17 +2220,11 @@ class GeneratorController(MySupport):
             TempList = self.ReadTempLogFromFile(sensor_name)
             if not Minutes:
                 return TempList
-            CurrentTime = datetime.datetime.now()
-            # TempList is newest-first; iterate from newest and stop at cutoff
-            for Time, Temp in TempList:
-                try:
-                    struct_time = time.strptime(Time, "%x %X")
-                    LogEntryTime = datetime.datetime.fromtimestamp(time.mktime(struct_time))
-                except Exception as e1:
-                    continue
-                Delta = CurrentTime - LogEntryTime
-                if self.GetDeltaTimeMinutes(Delta) < Minutes:
-                    ReturnList.append([Time, Temp])
+            CutoffEpoch = time.time() - (Minutes * 60)
+            # TempList is newest-first; iterate and stop at cutoff
+            for entry in TempList:
+                if entry[2] >= CutoffEpoch:
+                    ReturnList.append(entry)
                 else:
                     break
         except Exception as e1:
@@ -2258,7 +2262,8 @@ class GeneratorController(MySupport):
             TempList = self.ReadTempLogFromFile(sensor_name, Minutes=Minutes)
             if len(TempList) > 1000:
                 TempList = self.DecimateList(TempList, 1000)
-            return TempList
+            # Return only [timestamp, value] for JSON response
+            return [[entry[0], entry[1]] for entry in TempList]
 
         except Exception as e1:
             self.LogErrorLine("Error in GetTempHistory: " + str(e1))
