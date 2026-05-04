@@ -2823,9 +2823,14 @@ var Pages = {
       this._tempCharts[sensorName] = { chart: chart, rawData: null };
     },
 
-    _fetchTempChartData: function(sensorName) {
+    _fetchTempChartData: function(sensorName, mins) {
       var self = Pages.status;
-      API.get('temp_log_json?temp_log_json=43200&sensor=' + encodeURIComponent(sensorName), 20000).done(function(d) {
+      if (!mins) {
+        var key = 'tempchart-' + Store.slugify(sensorName);
+        var $active = $('[data-tile="' + key + '"] .chart-btn.active');
+        mins = $active.length ? $active.data('mins') : 43200;
+      }
+      API.get('temp_log_json?temp_log_json=' + mins + '&sensor=' + encodeURIComponent(sensorName), 20000).done(function(d) {
         if (!d || !Array.isArray(d)) return;
         var parsed = [];
         for (var i = d.length - 1; i >= 0; i--) {
@@ -2848,35 +2853,24 @@ var Pages = {
           } catch(e) {}
           parsed.push({ raw: raw, val: val, date: dt });
         }
-        if (self._tempCharts[sensorName]) {
-          self._tempCharts[sensorName].rawData = parsed;
-        }
-        var key = 'tempchart-' + Store.slugify(sensorName);
-        var $active = $('[data-tile="' + key + '"] .chart-btn.active');
-        var mins = $active.length ? $active.data('mins') : 43200;
-        self._loadTempChart(sensorName, mins);
+        self._loadTempChart(sensorName, mins, parsed);
       });
     },
 
-    _loadTempChart: function(sensorName, mins) {
+    _loadTempChart: function(sensorName, mins, parsed) {
       var entry = this._tempCharts[sensorName];
-      if (!entry || !entry.chart || !entry.rawData) return;
-      var data = entry.rawData;
+      if (!entry || !entry.chart) return;
+      if (!parsed) { this._fetchTempChartData(sensorName, mins); return; }
       var now = new Date();
       var cutoff = new Date(now.getTime() - mins * 60000);
       var points = [];
-      for (var i = 0; i < data.length; i++) {
-        var p = data[i];
+      for (var i = 0; i < parsed.length; i++) {
+        var p = parsed[i];
         if (!p.date) continue;
-        if (p.date < cutoff) continue;
         points.push({x: p.date.getTime(), y: p.val});
       }
-      if (!points.length && data.length) {
-        var last = 0;
-        for (var j = data.length - 1; j >= 0; j--) {
-          if (data[j].date) { last = data[j].val; break; }
-        }
-        points = [{x: cutoff.getTime(), y: last}, {x: now.getTime(), y: last}];
+      if (!points.length) {
+        points = [{x: cutoff.getTime(), y: 0}, {x: now.getTime(), y: 0}];
       }
       if (points.length) {
         if (points[0].x > cutoff.getTime()) {

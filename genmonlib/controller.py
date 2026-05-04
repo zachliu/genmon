@@ -2125,6 +2125,21 @@ class GeneratorController(MySupport):
             self.LogErrorLine("Error in  GetAveragePower: " + str(e1))
             return 0, 0
 
+    # ----------  GeneratorController::DecimateList--------------------------------
+    def DecimateList(self, inputList, MaxSize):
+        try:
+            if len(inputList) <= MaxSize:
+                return inputList
+            step = float(len(inputList) - 1) / float(MaxSize - 1)
+            result = []
+            for i in range(MaxSize):
+                idx = int(round(i * step))
+                result.append(inputList[idx])
+            return result
+        except Exception as e1:
+            self.LogErrorLine("Error in DecimateList: " + str(e1))
+            return inputList
+
     # ----------  GeneratorController::GetTempLogFile-----------------------------
     def GetTempLogFile(self, sensor_name):
         safe_name = re.sub(r'[^\w\-]', '_', sensor_name)
@@ -2238,8 +2253,8 @@ class GeneratorController(MySupport):
                     break
 
             TempList = self.ReadTempLogFromFile(sensor_name, Minutes=Minutes)
-            if len(TempList) > self.MaxTempLogEntries:
-                TempList = self.ReducePowerSamples(TempList, self.MaxTempLogEntries)
+            if len(TempList) > 1000:
+                TempList = self.DecimateList(TempList, 1000)
             return TempList
 
         except Exception as e1:
