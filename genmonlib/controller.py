@@ -2211,7 +2211,8 @@ class GeneratorController(MySupport):
             if not Minutes:
                 return TempList
             CurrentTime = datetime.datetime.now()
-            for Time, Temp in reversed(TempList):
+            # TempList is newest-first; iterate from newest and stop at cutoff
+            for Time, Temp in TempList:
                 try:
                     struct_time = time.strptime(Time, "%x %X")
                     LogEntryTime = datetime.datetime.fromtimestamp(time.mktime(struct_time))
@@ -2219,7 +2220,9 @@ class GeneratorController(MySupport):
                     continue
                 Delta = CurrentTime - LogEntryTime
                 if self.GetDeltaTimeMinutes(Delta) < Minutes:
-                    ReturnList.insert(0, [Time, Temp])
+                    ReturnList.append([Time, Temp])
+                else:
+                    break
         except Exception as e1:
             self.LogErrorLine("Error in GetTempLogForMinutes: " + str(e1))
         return ReturnList

@@ -2774,7 +2774,7 @@ var Pages = {
         data:{ datasets:[{
           label:'°', data:[], borderColor:'#f59e0b',
           backgroundColor:'rgba(245,158,11,.1)', tension:0, fill:true,
-          pointRadius:3, pointBackgroundColor:'#f59e0b', pointBorderColor:'#f59e0b'
+          pointRadius:0, pointBackgroundColor:'#f59e0b', pointBorderColor:'#f59e0b'
         }]},
         options:{
           responsive:true, maintainAspectRatio:false,
