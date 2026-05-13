@@ -2182,6 +2182,27 @@ class GeneratorController(MySupport):
         return re.sub(r'[^\w\-]', '_', sensor_name)
 
     # ----------  GeneratorController::ReadTempLogFromFile------------------------
+    def _ParseTempLogFile(self, LogFile):
+        TempList = []
+        try:
+            with open(LogFile, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not len(line):
+                        continue
+                    if line[0] == "#":
+                        continue
+                    line = self.removeNonPrintable(line)
+                    Items = line.split(",")
+                    if len(Items) != 2:
+                        continue
+                    Items[1] = self.removeAlpha(Items[1])
+                    epoch = self.ParseTempTimestamp(Items[0])
+                    TempList.insert(0, [Items[0], Items[1], epoch])
+        except Exception as e1:
+            self.LogErrorLine("Error in _ParseTempLogFile: " + str(e1))
+        return TempList
+
     def ReadTempLogFromFile(self, sensor_name, Minutes=0):
         LogFile = self.GetTempLogFile(sensor_name)
         cache_key = self.GetTempCacheKey(sensor_name)
@@ -2189,45 +2210,35 @@ class GeneratorController(MySupport):
             return []
 
         with self.TempLogLock:
-            if cache_key in self.TempLogLists and len(self.TempLogLists[cache_key]) and not Minutes:
-                return self.TempLogLists[cache_key]
             if Minutes:
-                return self.GetTempLogForMinutes(sensor_name, Minutes)
+                return self.GetTempLogForMinutes(sensor_name, cache_key, LogFile, Minutes)
 
-            TempList = []
-            try:
-                with open(LogFile, "r") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not len(line):
-                            continue
-                        if line[0] == "#":
-                            continue
-                        line = self.removeNonPrintable(line)
-                        Items = line.split(",")
-                        if len(Items) != 2:
-                            continue
-                        Items[1] = self.removeAlpha(Items[1])
-                        epoch = self.ParseTempTimestamp(Items[0])
-                        TempList.insert(0, [Items[0], Items[1], epoch])
-            except Exception as e1:
-                self.LogErrorLine("Error in ReadTempLogFromFile (parse): " + str(e1))
+            if cache_key in self.TempLogLists and len(self.TempLogLists[cache_key]):
+                return self.TempLogLists[cache_key]
 
+            TempList = self._ParseTempLogFile(LogFile)
             if len(TempList) > self.MaxTempLogEntries:
-                TempList = self.ReducePowerSamples(TempList, self.MaxTempLogEntries)
-            if cache_key not in self.TempLogLists or not len(self.TempLogLists.get(cache_key, [])):
-                self.TempLogLists[cache_key] = TempList
+                TempList = self.DecimateList(TempList, self.MaxTempLogEntries)
+            self.TempLogLists[cache_key] = TempList
         return TempList
 
     # ----------  GeneratorController::GetTempLogForMinutes-----------------------
-    def GetTempLogForMinutes(self, sensor_name, Minutes):
+    def GetTempLogForMinutes(self, sensor_name, cache_key, LogFile, Minutes):
         ReturnList = []
         try:
-            TempList = self.ReadTempLogFromFile(sensor_name)
-            if not Minutes:
-                return TempList
             CutoffEpoch = time.time() - (Minutes * 60)
-            # TempList is newest-first; iterate and stop at cutoff
+            # Check if the cache covers the requested window
+            CachedList = self.TempLogLists.get(cache_key, [])
+            if len(CachedList) and CachedList[-1][2] <= CutoffEpoch:
+                # Cache oldest entry is older than cutoff, cache has full coverage
+                for entry in CachedList:
+                    if entry[2] >= CutoffEpoch:
+                        ReturnList.append(entry)
+                    else:
+                        break
+                return ReturnList
+            # Cache doesn't cover the window, read from file
+            TempList = self._ParseTempLogFile(LogFile)
             for entry in TempList:
                 if entry[2] >= CutoffEpoch:
                     ReturnList.append(entry)
