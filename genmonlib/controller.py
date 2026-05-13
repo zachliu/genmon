@@ -2229,20 +2229,14 @@ class GeneratorController(MySupport):
             CutoffEpoch = time.time() - (Minutes * 60)
             # Check if the cache covers the requested window
             CachedList = self.TempLogLists.get(cache_key, [])
-            CacheCoversWindow = (
-                len(CachedList) and (
-                    CachedList[-1][2] <= CutoffEpoch or
-                    len(CachedList) < self.MaxTempLogEntries
-                )
-            )
-            if CacheCoversWindow:
+            if len(CachedList):
                 for entry in CachedList:
                     if entry[2] >= CutoffEpoch:
                         ReturnList.append(entry)
                     else:
                         break
                 return ReturnList
-            # Cache doesn't cover the window, read from file
+            # No cache yet, read from file
             TempList = self._ParseTempLogFile(LogFile)
             for entry in TempList:
                 if entry[2] >= CutoffEpoch:
