@@ -2266,8 +2266,16 @@ class GeneratorController(MySupport):
                     break
 
             TempList = self.ReadTempLogFromFile(sensor_name, Minutes=Minutes)
-            if len(TempList) > 1000:
-                TempList = self.DecimateList(TempList, 1000)
+            if Minutes <= 360:
+                MaxPoints = 1000
+            elif Minutes <= 1440:
+                MaxPoints = 2000
+            elif Minutes <= 10080:
+                MaxPoints = 3000
+            else:
+                MaxPoints = 4000
+            if len(TempList) > MaxPoints:
+                TempList = self.DecimateList(TempList, MaxPoints)
             # Return only [timestamp, value] for JSON response
             return [[entry[0], entry[1]] for entry in TempList]
 
